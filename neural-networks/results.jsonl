@@ -1,0 +1,3 @@
+{"train_time": 110.54193902015686, "pred_time": 0.04398512840270996, "acc": 0.9144610663598005, "variant": "sklearn", "memory": "138.592MB"}
+{"train_time": 25.542937755584717, "pred_time": 0.043467044830322266, "acc": 0.9174018667689554, "variant": "skearly", "memory": "147.858MB"}
+{"train_time": 15.44845724105835, "pred_time": 0.6071658134460449, "acc": 0.925329241784938, "variant": "keras", "memory": "2.804GB"}
