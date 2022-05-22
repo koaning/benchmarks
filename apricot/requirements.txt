@@ -1,0 +1,7 @@
+apricot-select
+scikit-learn
+jupyterlab
+pandas
+icepickle
+whatlies[tfhub]
+memo
