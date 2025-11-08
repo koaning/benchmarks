@@ -10,6 +10,7 @@ This benchmark compares the performance of various approaches to summing numbers
 7. **functools.reduce()**: Functional reduce approach
 8. **itertools.accumulate()**: Accumulation with itertools
 9. **Math formula (Gauss)**: Direct calculation using Gauss's formula: n*(n-1)/2
+10. **numpy.sum()**: NumPy's optimized sum function
 
 ## Motivation
 
@@ -17,18 +18,19 @@ Python is often criticized for being slow with recursion compared to other funct
 
 ## Key Findings
 
-**Math formula is ~170,000x faster than recursion!**
+**Math formula is ~180,000x faster than recursion!**
 
 Complete ranking (fastest to slowest):
 1. **Math formula (Gauss)**: 0.0005ms ⚡ (baseline)
-2. **sum(range(n))**: 1.01ms (1,838x slower)
-3. **sum(generator)**: 2.57ms (4,677x slower)
-4. **For-loop**: 2.68ms (4,873x slower)
-5. **sum([list comp])**: 3.69ms (6,714x slower)
-6. **itertools.accumulate()**: 4.52ms (8,231x slower)
-7. **functools.reduce()**: 4.99ms (9,086x slower)
-8. **While loop**: 5.56ms (10,124x slower)
-9. **Recursion**: 93.41ms (170,027x slower) 🐌
+2. **numpy.sum()**: 0.092ms (179x slower) - NumPy is blazing fast!
+3. **sum(range(n))**: 1.06ms (2,053x slower)
+4. **For-loop**: 2.83ms (5,490x slower)
+5. **sum(generator)**: 3.17ms (6,156x slower)
+6. **itertools.accumulate()**: 4.40ms (8,554x slower)
+7. **sum([list comp])**: 4.75ms (9,222x slower)
+8. **functools.reduce()**: 4.83ms (9,381x slower)
+9. **While loop**: 5.85ms (11,367x slower)
+10. **Recursion**: 93.05ms (180,753x slower) 🐌
 
 ## Why is Recursion So Slow in Python?
 
@@ -68,40 +70,44 @@ RESULTS (sorted by speed)
 ================================================================================
 
 1. Math formula (Gauss)
-   Mean: 0.0005ms ± 0.0003ms
+   Mean: 0.0005ms ± 0.0004ms
    Slowdown: 1.00x
 
-2. sum(range(n))
-   Mean: 1.0098ms ± 0.0111ms
-   Slowdown: 1838.00x
+2. numpy.sum()
+   Mean: 0.0924ms ± 0.0751ms
+   Slowdown: 179.40x
 
-3. sum(generator)
-   Mean: 2.5697ms ± 0.0517ms
-   Slowdown: 4677.26x
+3. sum(range(n))
+   Mean: 1.0568ms ± 0.0064ms
+   Slowdown: 2052.78x
 
 4. For-loop
-   Mean: 2.6774ms ± 0.0343ms
-   Slowdown: 4873.37x
+   Mean: 2.8260ms ± 0.1689ms
+   Slowdown: 5489.50x
 
-5. sum([list comp])
-   Mean: 3.6889ms ± 1.7269ms
-   Slowdown: 6714.49x
+5. sum(generator)
+   Mean: 3.1691ms ± 0.6091ms
+   Slowdown: 6156.06x
 
 6. itertools.accumulate()
-   Mean: 4.5220ms ± 0.8788ms
-   Slowdown: 8230.79x
+   Mean: 4.4036ms ± 0.4350ms
+   Slowdown: 8553.99x
 
-7. functools.reduce()
-   Mean: 4.9917ms ± 0.2486ms
-   Slowdown: 9085.70x
+7. sum([list comp])
+   Mean: 4.7473ms ± 2.0509ms
+   Slowdown: 9221.63x
 
-8. While loop
-   Mean: 5.5619ms ± 0.0774ms
-   Slowdown: 10123.61x
+8. functools.reduce()
+   Mean: 4.8294ms ± 0.0974ms
+   Slowdown: 9381.20x
 
-9. Recursion
-   Mean: 93.4129ms ± 8.4918ms
-   Slowdown: 170027.14x
+9. While loop
+   Mean: 5.8515ms ± 0.3624ms
+   Slowdown: 11366.57x
+
+10. Recursion
+   Mean: 93.0515ms ± 4.6025ms
+   Slowdown: 180752.77x
 ```
 
 ## Takeaways
@@ -109,10 +115,21 @@ RESULTS (sorted by speed)
 ### General Performance Insights
 
 1. **Think mathematically first**: If there's a closed-form formula (like Gauss's formula), use it! It's orders of magnitude faster.
-2. **Built-in functions are optimized**: `sum(range(n))` is surprisingly fast - faster than hand-written loops!
-3. **For-loops are still good**: Traditional for-loops perform well and are readable
-4. **While loops are slower**: While loops have more overhead than for-loops in Python
-5. **Avoid recursion for iteration**: Recursion is dramatically slower (93ms vs 0.0005ms for math formula)
+2. **NumPy is incredibly fast**: `numpy.sum()` is 11x faster than `sum(range(n))` and 30x faster than for-loops!
+3. **Built-in functions are optimized**: `sum(range(n))` is surprisingly fast - faster than hand-written loops!
+4. **For-loops are still good**: Traditional for-loops perform well and are readable
+5. **While loops are slower**: While loops have more overhead than for-loops in Python
+6. **Avoid recursion for iteration**: Recursion is dramatically slower (93ms vs 0.0005ms for math formula)
+
+### Why is numpy.sum() so fast?
+
+NumPy is optimized for numerical operations and beats everything except the math formula:
+- **Vectorized operations**: Works on entire arrays at once using optimized C/Fortran code
+- **SIMD instructions**: Uses CPU vector instructions for parallel computation
+- **Memory efficiency**: Contiguous memory layout for cache-friendly access
+- **No Python overhead**: Minimal Python interpreter interaction during computation
+
+NumPy is ~11x faster than `sum(range())` and ~30x faster than for-loops!
 
 ### Why is sum(range(n)) faster than for-loops?
 
@@ -124,6 +141,7 @@ The built-in `sum()` function with `range()` is implemented in C and highly opti
 ### When to use each approach
 
 - **Math formula**: When a closed-form solution exists (always the fastest!)
+- **NumPy**: For numerical operations on arrays - extremely fast and powerful
 - **sum(range())**: For simple sequential sums - clean and fast
 - **Generator expressions**: Memory-efficient for large ranges
 - **For-loops**: When you need complex logic or side effects
@@ -133,7 +151,7 @@ The built-in `sum()` function with `range()` is implemented in C and highly opti
 
 ### Recursion in Python
 
-- **Massive overhead**: 170,000x slower than the math formula, 35x slower than for-loops
+- **Massive overhead**: 180,000x slower than the math formula, 1,000x slower than numpy, 33x slower than for-loops
 - **Not tail-call optimized**: Each call adds stack overhead
 - **Limited recursion depth**: Default limit of 1,000 calls
 - **Use sparingly**: Only for naturally recursive problems (trees, graphs, divide-and-conquer)
@@ -171,4 +189,12 @@ def math_formula_sum(n: int) -> int:
     return (n * (n - 1)) // 2  # Gauss's formula
 ```
 
-The recursive implementation uses an accumulator pattern but still suffers from Python's lack of tail-call optimization.
+**NumPy (second fastest for actual computation):**
+```python
+import numpy as np
+
+def numpy_sum(n: int) -> int:
+    return int(np.sum(np.arange(n)))
+```
+
+The recursive implementation uses an accumulator pattern but still suffers from Python's lack of tail-call optimization. NumPy's vectorized operations make it ideal for numerical computations on large datasets.
