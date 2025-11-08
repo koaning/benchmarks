@@ -1,44 +1,104 @@
 """
-Benchmark the overhead of running a script via marimo vs plain Python.
+Benchmark the overhead of marimo vs plain Python.
 
-This script measures the startup time and execution overhead of marimo
-compared to running equivalent Python code directly.
+This script measures:
+1. Plain Python script execution time
+2. Marimo import overhead
+3. Marimo app initialization overhead
 """
 
 import time
 import subprocess
 import statistics
 import json
+import sys
 from pathlib import Path
 
 
-def measure_plain_python(script_path: str, iterations: int = 10) -> list[float]:
+def measure_plain_python(script_path: str, iterations: int = 3) -> list[float]:
     """Measure execution time of plain Python script."""
     times = []
-    for _ in range(iterations):
+    for i in range(iterations):
+        print(f"  Iteration {i+1}/{iterations}...", end=" ", flush=True)
         start = time.perf_counter()
         result = subprocess.run(
             ["python", script_path],
             capture_output=True,
-            check=True
+            check=True,
+            timeout=10
         )
         end = time.perf_counter()
-        times.append(end - start)
+        elapsed = end - start
+        times.append(elapsed)
+        print(f"{elapsed:.3f}s")
     return times
 
 
-def measure_marimo_run(script_path: str, iterations: int = 10) -> list[float]:
-    """Measure execution time of marimo run."""
+def measure_marimo_import(iterations: int = 3) -> list[float]:
+    """Measure marimo import overhead."""
+    import_script = '''
+import time
+start = time.perf_counter()
+import marimo
+elapsed = time.perf_counter() - start
+print(elapsed)
+'''
+    script_path = Path(__file__).parent / "test_import.py"
+    script_path.write_text(import_script)
+
     times = []
-    for _ in range(iterations):
-        start = time.perf_counter()
+    for i in range(iterations):
+        print(f"  Iteration {i+1}/{iterations}...", end=" ", flush=True)
         result = subprocess.run(
-            ["marimo", "run", script_path, "--headless"],
+            ["python", str(script_path)],
             capture_output=True,
-            check=True
+            check=True,
+            timeout=10,
+            text=True
         )
-        end = time.perf_counter()
-        times.append(end - start)
+        elapsed = float(result.stdout.strip())
+        times.append(elapsed)
+        print(f"{elapsed:.3f}s")
+
+    script_path.unlink()
+    return times
+
+
+def measure_marimo_app_init(iterations: int = 3) -> list[float]:
+    """Measure marimo app initialization overhead."""
+    app_script = '''
+import time
+import marimo
+
+start = time.perf_counter()
+app = marimo.App()
+
+@app.cell
+def __():
+    result = sum(range(1000))
+    return result,
+
+elapsed = time.perf_counter() - start
+print(elapsed)
+'''
+    script_path = Path(__file__).parent / "test_app_init.py"
+    script_path.write_text(app_script)
+
+    times = []
+    for i in range(iterations):
+        print(f"  Iteration {i+1}/{iterations}...", end=" ", flush=True)
+        result = subprocess.run(
+            ["python", str(script_path)],
+            capture_output=True,
+            check=True,
+            timeout=10,
+            text=True
+        )
+        elapsed = float(result.stdout.strip())
+        times.append(elapsed)
+        print(f"{elapsed:.3f}s")
+
+    script_path.unlink()
     return times
 
 
@@ -89,47 +149,56 @@ if __name__ == "__main__":
 
 
 def main():
-    iterations = 10
+    # Allow command line override for iterations
+    iterations = int(sys.argv[1]) if len(sys.argv) > 1 else 3
 
-    print("Creating test scripts...")
+    print(f"Marimo Overhead Benchmark ({iterations} iterations)\n")
+
+    print("[1/3] Creating baseline Python script...")
     plain_script = create_simple_script()
-    marimo_script = create_marimo_script()
 
-    print(f"\nRunning benchmark ({iterations} iterations each)...\n")
-
-    print("Measuring plain Python execution...")
+    print("\n[2/3] Measuring plain Python execution...")
     plain_times = measure_plain_python(plain_script, iterations)
 
-    print("Measuring marimo run execution...")
-    marimo_times = measure_marimo_run(marimo_script, iterations)
+    print("\n[3/3] Measuring marimo import time...")
+    import_times = measure_marimo_import(iterations)
+
+    print("\n[4/4] Measuring marimo app initialization...")
+    app_init_times = measure_marimo_app_init(iterations)
 
     # Calculate statistics
     plain_mean = statistics.mean(plain_times)
     plain_stdev = statistics.stdev(plain_times) if len(plain_times) > 1 else 0
 
-    marimo_mean = statistics.mean(marimo_times)
-    marimo_stdev = statistics.stdev(marimo_times) if len(marimo_times) > 1 else 0
+    import_mean = statistics.mean(import_times)
+    import_stdev = statistics.stdev(import_times) if len(import_times) > 1 else 0
 
-    overhead = marimo_mean - plain_mean
-    overhead_pct = (overhead / plain_mean) * 100
+    app_init_mean = statistics.mean(app_init_times)
+    app_init_stdev = statistics.stdev(app_init_times) if len(app_init_times) > 1 else 0
 
     # Print results
     print("\n" + "="*60)
     print("RESULTS")
     print("="*60)
-    print(f"\nPlain Python:")
-    print(f"  Mean: {plain_mean:.4f}s ± {plain_stdev:.4f}s")
-    print(f"  Min:  {min(plain_times):.4f}s")
-    print(f"  Max:  {max(plain_times):.4f}s")
+    print(f"\nPlain Python script execution:")
+    print(f"  Mean: {plain_mean*1000:.2f}ms ± {plain_stdev*1000:.2f}ms")
+    print(f"  Min:  {min(plain_times)*1000:.2f}ms")
+    print(f"  Max:  {max(plain_times)*1000:.2f}ms")
 
-    print(f"\nMarimo run:")
-    print(f"  Mean: {marimo_mean:.4f}s ± {marimo_stdev:.4f}s")
-    print(f"  Min:  {min(marimo_times):.4f}s")
-    print(f"  Max:  {max(marimo_times):.4f}s")
+    print(f"\nMarimo import time:")
+    print(f"  Mean: {import_mean*1000:.2f}ms ± {import_stdev*1000:.2f}ms")
+    print(f"  Min:  {min(import_times)*1000:.2f}ms")
+    print(f"  Max:  {max(import_times)*1000:.2f}ms")
 
-    print(f"\nOverhead:")
-    print(f"  Absolute: {overhead:.4f}s")
-    print(f"  Relative: {overhead_pct:.2f}%")
+    print(f"\nMarimo app initialization:")
+    print(f"  Mean: {app_init_mean*1000:.2f}ms ± {app_init_stdev*1000:.2f}ms")
+    print(f"  Min:  {min(app_init_times)*1000:.2f}ms")
+    print(f"  Max:  {max(app_init_times)*1000:.2f}ms")
+
+    total_marimo = import_mean + app_init_mean
+    print(f"\nTotal marimo overhead:")
+    print(f"  Import + Init: {total_marimo*1000:.2f}ms")
+    print(f"  vs Plain Python: {(total_marimo/plain_mean)*100:.1f}x slower")
     print("="*60)
 
     # Save results to JSONL
@@ -143,16 +212,23 @@ def main():
             "max": max(plain_times),
             "all_times": plain_times
         },
-        "marimo_run": {
-            "mean": marimo_mean,
-            "stdev": marimo_stdev,
-            "min": min(marimo_times),
-            "max": max(marimo_times),
-            "all_times": marimo_times
+        "marimo_import": {
+            "mean": import_mean,
+            "stdev": import_stdev,
+            "min": min(import_times),
+            "max": max(import_times),
+            "all_times": import_times
         },
-        "overhead": {
-            "absolute": overhead,
-            "relative_pct": overhead_pct
+        "marimo_app_init": {
+            "mean": app_init_mean,
+            "stdev": app_init_stdev,
+            "min": min(app_init_times),
+            "max": max(app_init_times),
+            "all_times": app_init_times
+        },
+        "total_overhead": {
+            "absolute": total_marimo,
+            "relative_to_plain": total_marimo / plain_mean
         }
     }
 
