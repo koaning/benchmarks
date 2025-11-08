@@ -83,14 +83,14 @@ Measures how long it takes to `import marimo` across different versions of the l
 ### Running the benchmark
 
 ```bash
-# Test default versions (0.6.0, 0.7.0, 0.8.0, 0.9.0, 0.10.0) with 10 iterations
+# Test default versions (0.6.0, 0.7.0, 0.8.0, 0.9.0, 0.10.0, 0.12.0, 0.14.0, 0.16.0, 0.17.0) with 10 iterations
 python benchmark_import.py
 
 # Test with more iterations for better accuracy
 python benchmark_import.py 20
 
 # Test specific versions
-python benchmark_import.py 10 0.8.0 0.9.0 0.10.0
+python benchmark_import.py 10 0.8.0 0.9.0 0.10.0 0.17.0
 
 # Show help
 python benchmark_import.py --help
@@ -109,34 +109,42 @@ After testing, it automatically restores your original marimo version.
 
 ### Results
 
-Example output:
+Actual benchmark results (10 iterations each):
 
 ```
 Marimo Import Time Benchmark
-Testing 5 version(s) with 10 iterations each
+Testing 9 version(s) with 10 iterations each
 
-Versions to test: 0.6.0, 0.7.0, 0.8.0, 0.9.0, 0.10.0
+Versions to test: 0.6.0, 0.7.0, 0.8.0, 0.9.0, 0.10.0, 0.12.0, 0.14.0, 0.16.0, 0.17.0
 
-================================================================================
+===============================================================================================
 RESULTS SUMMARY
-================================================================================
-Version              Mean        StdDev          Min          Max       Change
---------------------------------------------------------------------------------
-0.6.0             245.23ms      12.34ms     232.10ms     265.87ms    (baseline)
-0.7.0             258.45ms      15.67ms     241.32ms     282.11ms         +5.4%
-0.8.0             271.89ms      13.21ms     255.43ms     289.76ms        +10.9%
-0.9.0             283.12ms      18.45ms     262.34ms     308.92ms        +15.5%
-0.10.0            295.67ms      16.78ms     275.21ms     320.45ms        +20.6%
-================================================================================
+===============================================================================================
+Version      Mean         StdDev       Variance      Min          Max          Change
+-----------------------------------------------------------------------------------------------
+0.6.0          636.53ms     21.01ms     441.33ms²    593.74ms    663.05ms    (baseline)
+0.7.0          747.45ms     50.85ms    2585.95ms²    683.01ms    853.74ms        +17.4%
+0.8.0          793.73ms     30.24ms     914.55ms²    753.57ms    838.83ms        +24.7%
+0.9.0          834.31ms     26.98ms     727.67ms²    803.35ms    889.64ms        +31.1%
+0.10.0         732.10ms     32.12ms    1031.42ms²    669.83ms    770.54ms        +15.0%
+0.12.0         841.36ms     21.01ms     441.51ms²    821.04ms    893.32ms        +32.2%
+0.14.0        1038.94ms     40.86ms    1669.91ms²    967.42ms   1107.10ms        +63.2%
+0.16.0        1069.03ms     53.14ms    2824.32ms²    987.42ms   1165.92ms        +67.9%
+0.17.0        1082.62ms     49.48ms    2448.67ms²    998.77ms   1135.77ms        +70.1%
+===============================================================================================
 
 Results saved to import_benchmark_results.jsonl
 ```
 
 ### Interpretation
 
-- **Baseline comparison**: The first version tested is used as the baseline (0%)
-- **Percentage change**: Shows how much slower/faster each version is compared to baseline
-- **Trend analysis**: Track whether import time is increasing over releases
+Key findings from the benchmark:
+
+- **Import time trend**: Import time has increased significantly from 0.6.0 (636ms) to 0.17.0 (1083ms), a **70% increase**
+- **Version 0.10.0 optimization**: Version 0.10.0 (732ms) showed a 12% improvement over 0.9.0 (834ms), indicating deliberate optimization work
+- **Major jump at 0.14.0**: There was a significant increase from 0.12.0 (841ms) to 0.14.0 (1039ms) - a 24% jump, suggesting new features or dependencies were added
+- **Variance analysis**: Most versions have relatively low variance (400-1000ms²), with 0.7.0 and 0.16.0 showing higher variance (2500-2800ms²)
+- **Baseline comparison**: All comparisons are relative to the first version tested (0.6.0 as baseline)
 - **Results persistence**: All results are saved to `import_benchmark_results.jsonl` for historical tracking
 
 ### Notes

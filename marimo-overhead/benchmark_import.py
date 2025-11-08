@@ -91,15 +91,17 @@ def benchmark_version(version: str, iterations: int) -> Dict:
     # Calculate statistics
     mean = statistics.mean(times)
     stdev = statistics.stdev(times) if len(times) > 1 else 0
+    variance = statistics.variance(times) if len(times) > 1 else 0
     min_time = min(times)
     max_time = max(times)
 
-    print(f"  Results: {mean*1000:.2f}ms ± {stdev*1000:.2f}ms (min: {min_time*1000:.2f}ms, max: {max_time*1000:.2f}ms)")
+    print(f"  Results: {mean*1000:.2f}ms ± {stdev*1000:.2f}ms (variance: {variance*1000000:.2f}ms², min: {min_time*1000:.2f}ms, max: {max_time*1000:.2f}ms)")
 
     return {
         "version": version,
         "mean": mean,
         "stdev": stdev,
+        "variance": variance,
         "min": min_time,
         "max": max_time,
         "all_times": times
@@ -108,17 +110,18 @@ def benchmark_version(version: str, iterations: int) -> Dict:
 
 def print_results_table(results: List[Dict]):
     """Print results in a formatted table."""
-    print("\n" + "="*80)
+    print("\n" + "="*95)
     print("RESULTS SUMMARY")
-    print("="*80)
-    print(f"{'Version':<15} {'Mean':<12} {'StdDev':<12} {'Min':<12} {'Max':<12} {'Change':<12}")
-    print("-"*80)
+    print("="*95)
+    print(f"{'Version':<12} {'Mean':<12} {'StdDev':<12} {'Variance':<13} {'Min':<12} {'Max':<12} {'Change':<12}")
+    print("-"*95)
 
     baseline = None
     for result in results:
         version = result["version"]
         mean_ms = result["mean"] * 1000
         stdev_ms = result["stdev"] * 1000
+        variance_ms2 = result["variance"] * 1000000
         min_ms = result["min"] * 1000
         max_ms = result["max"] * 1000
 
@@ -129,9 +132,9 @@ def print_results_table(results: List[Dict]):
             change = ((result["mean"] - baseline) / baseline) * 100
             change_str = f"{change:+.1f}%"
 
-        print(f"{version:<15} {mean_ms:>8.2f}ms  {stdev_ms:>8.2f}ms  {min_ms:>8.2f}ms  {max_ms:>8.2f}ms  {change_str:>12}")
+        print(f"{version:<12} {mean_ms:>8.2f}ms  {stdev_ms:>8.2f}ms  {variance_ms2:>9.2f}ms²  {min_ms:>8.2f}ms  {max_ms:>8.2f}ms  {change_str:>12}")
 
-    print("="*80)
+    print("="*95)
 
 
 def main():
@@ -142,6 +145,10 @@ def main():
         "0.8.0",
         "0.9.0",
         "0.10.0",
+        "0.12.0",
+        "0.14.0",
+        "0.16.0",
+        "0.17.0",
     ]
 
     # Parse command line arguments
