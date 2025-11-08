@@ -2,5 +2,6 @@ plain_script.py
 marimo_notebook.py
 marimo_notebook_with_import.py
 results.jsonl
+import_benchmark_results.jsonl
 __pycache__/
 *.pyc
