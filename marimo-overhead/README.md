@@ -1,12 +1,14 @@
 # Marimo Overhead Benchmark
 
-This benchmark measures the execution overhead of running scripts via marimo compared to plain Python.
+This benchmark measures the execution overhead of running a marimo notebook as a script (`python notebook.py`) compared to plain Python.
 
 ## What it measures
 
-- Startup time for plain Python scripts
-- Startup time for marimo run in headless mode
-- Absolute and relative overhead of marimo execution
+Compares the execution time of:
+- `python plain_script.py` - Plain Python script
+- `python marimo_notebook.py` - Marimo notebook run as a script
+
+Both scripts perform the same simple computation, allowing you to measure the overhead of marimo's framework.
 
 ## Running the benchmark
 
@@ -14,21 +16,21 @@ This benchmark measures the execution overhead of running scripts via marimo com
 # Install dependencies
 pip install -r requirements.txt
 
-# Run the benchmark
+# Run the benchmark (default: 3 iterations)
 make benchmark
 
-# Or run directly
-python benchmark.py
+# Or run directly with custom iterations
+python benchmark.py 5
 ```
 
 ## Results
 
-Results are saved to `results.jsonl` with timing statistics for both plain Python and marimo execution.
+Results are saved to `results.jsonl` with timing statistics including:
+- Mean, min, max execution times
+- Standard deviation
+- Absolute and relative overhead
+- Slowdown factor
 
 ## Interpretation
 
-The benchmark creates two equivalent scripts:
-1. A simple Python script that performs basic computation
-2. A marimo app that performs the same computation
-
-Each is executed multiple times (default: 10 iterations) and the execution times are compared to calculate the overhead.
+The benchmark measures the real-world overhead you'd experience when running a marimo notebook as a script vs plain Python. This is the most pragmatic comparison since marimo notebooks are valid Python files that can be executed directly.

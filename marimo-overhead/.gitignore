@@ -1,5 +1,5 @@
-test_script.py
-test_script_marimo.py
+plain_script.py
+marimo_notebook.py
 results.jsonl
 __pycache__/
 *.pyc
