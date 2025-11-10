@@ -1,13 +1,14 @@
 """
-Benchmark different approaches to deduplication with a focus on Polars anti-join.
+Benchmark different approaches to filtering new items against existing seen items.
+
+Use case: You have a set of items you've seen before, and new items come in.
+You want to find which new items you haven't seen yet.
 
 Compares:
-- Polars anti-join pattern
-- Python set()
-- Polars unique()
-- Polars is_duplicated() filter
-- Polars group_by().first()
-- Pandas drop_duplicates()
+- Polars anti-join (new_df.join(seen_df, how="anti"))
+- Python set difference (new_set - seen_set)
+- Python set with list comprehension
+- Polars is_in() filter
 """
 
 import time
@@ -20,145 +21,109 @@ import polars as pl
 import pandas as pd
 
 
-def generate_data(size: int, duplication_rate: float, seed: int = 42):
+def generate_data(seen_size: int, new_size: int, overlap_rate: float, seed: int = 42):
     """
-    Generate test data with controlled duplication rate.
+    Generate test data: existing "seen" items and new incoming items.
 
     Args:
-        size: Total number of rows
-        duplication_rate: Fraction of rows that are duplicates (0.0 to 1.0)
+        seen_size: Number of items in the existing "seen" set
+        new_size: Number of new incoming items
+        overlap_rate: Fraction of new items that overlap with seen (0.0 to 1.0)
         seed: Random seed for reproducibility
 
     Returns:
-        Polars DataFrame with 'id' column
+        Tuple of (seen_df, new_df) - both Polars DataFrames with 'id' column
     """
     np.random.seed(seed)
 
-    # Calculate number of unique values needed
-    unique_count = int(size * (1 - duplication_rate))
-    unique_count = max(1, unique_count)  # At least 1 unique value
+    # Generate existing "seen" items
+    seen_ids = np.arange(seen_size)
+    seen_df = pl.DataFrame({"id": seen_ids})
 
-    # Generate data with duplicates
-    unique_ids = np.arange(unique_count)
-    ids = np.random.choice(unique_ids, size=size, replace=True)
+    # Generate new items with controlled overlap
+    overlap_count = int(new_size * overlap_rate)
+    new_count = new_size - overlap_count
 
-    # Shuffle to mix duplicates throughout
-    np.random.shuffle(ids)
+    # Items that overlap with seen
+    overlapping = np.random.choice(seen_ids, size=overlap_count, replace=True)
 
-    return pl.DataFrame({"id": ids})
+    # Items that are truly new
+    new_unique = np.arange(seen_size, seen_size + new_count)
+
+    # Combine and shuffle
+    new_ids = np.concatenate([overlapping, new_unique])
+    np.random.shuffle(new_ids)
+
+    new_df = pl.DataFrame({"id": new_ids})
+
+    return seen_df, new_df
 
 
-def method_polars_anti_join(df: pl.DataFrame) -> pl.DataFrame:
+def method_polars_anti_join(seen_df: pl.DataFrame, new_df: pl.DataFrame) -> pl.DataFrame:
     """
-    Use anti-join to deduplicate.
-    Strategy: Keep first occurrence, anti-join against duplicates.
+    Use Polars anti-join to find new items not in seen set.
+    This is the "proper" way to do it in Polars.
     """
-    # Get indices of first occurrences
-    first_occurrences = df.with_row_index().group_by("id").agg(
-        pl.col("index").first().alias("first_idx")
-    )
-
-    # Add row index to original df
-    df_indexed = df.with_row_index()
-
-    # Join to keep only first occurrences
-    # Actually, let's use a different approach - get duplicated IDs and anti-join
-    duplicated_ids = df.group_by("id").agg(
-        pl.col("id").count().alias("count")
-    ).filter(pl.col("count") > 1).select("id")
-
-    # Keep first of each ID
-    first = df.group_by("id").first()
-
-    return first
+    return new_df.join(seen_df, on="id", how="anti")
 
 
-def method_polars_anti_join_v2(df: pl.DataFrame) -> pl.DataFrame:
+def method_python_set_difference(seen_df: pl.DataFrame, new_df: pl.DataFrame) -> pl.DataFrame:
     """
-    Alternative anti-join approach: explicitly find duplicates and remove them.
+    Use Python set difference: new_set - seen_set
     """
-    # Mark row indices
-    df_indexed = df.with_row_index("row_num")
-
-    # Get first occurrence of each ID
-    first_occurrences = df_indexed.group_by("id").agg(
-        pl.col("row_num").min().alias("first_row")
-    )
-
-    # Anti-join: keep only rows that match the first occurrence
-    result = (
-        df_indexed
-        .join(first_occurrences, on="id")
-        .filter(pl.col("row_num") == pl.col("first_row"))
-        .select("id")
-    )
-
-    return result
+    seen_set = set(seen_df["id"].to_list())
+    new_set = set(new_df["id"].to_list())
+    result_set = new_set - seen_set
+    return pl.DataFrame({"id": list(result_set)})
 
 
-def method_python_set(df: pl.DataFrame) -> pl.DataFrame:
+def method_python_set_comprehension(seen_df: pl.DataFrame, new_df: pl.DataFrame) -> pl.DataFrame:
     """
-    Use Python set for deduplication (order-preserving).
+    Use Python set with list comprehension to preserve order.
     """
-    seen = set()
-    ids = df["id"].to_list()
-    result = []
-
-    for id_val in ids:
-        if id_val not in seen:
-            seen.add(id_val)
-            result.append(id_val)
-
+    seen_set = set(seen_df["id"].to_list())
+    new_ids = new_df["id"].to_list()
+    result = [id_val for id_val in new_ids if id_val not in seen_set]
     return pl.DataFrame({"id": result})
 
 
-def method_polars_unique(df: pl.DataFrame) -> pl.DataFrame:
+def method_polars_is_in(seen_df: pl.DataFrame, new_df: pl.DataFrame) -> pl.DataFrame:
     """
-    Use Polars built-in unique() method.
+    Use Polars is_in() to filter new items.
     """
-    return df.unique(subset=["id"], keep="first")
+    seen_ids = seen_df["id"]
+    return new_df.filter(~pl.col("id").is_in(seen_ids))
 
 
-def method_polars_is_duplicated(df: pl.DataFrame) -> pl.DataFrame:
+def method_pandas_merge(seen_df: pl.DataFrame, new_df: pl.DataFrame) -> pl.DataFrame:
     """
-    Use is_duplicated() to filter out duplicates.
+    Use Pandas merge with indicator to simulate anti-join.
     """
-    # is_duplicated marks ALL occurrences including first
-    # We want is_first_distinct instead
-    return df.unique(subset=["id"], keep="first")
+    seen_pdf = seen_df.to_pandas()
+    new_pdf = new_df.to_pandas()
 
+    merged = new_pdf.merge(seen_pdf, on="id", how="left", indicator=True)
+    result_pdf = merged[merged["_merge"] == "left_only"][["id"]]
 
-def method_polars_group_by(df: pl.DataFrame) -> pl.DataFrame:
-    """
-    Use group_by().first() for deduplication.
-    """
-    return df.group_by("id").first()
-
-
-def method_pandas_drop_duplicates(df: pl.DataFrame) -> pl.DataFrame:
-    """
-    Convert to Pandas and use drop_duplicates().
-    """
-    pdf = df.to_pandas()
-    result_pdf = pdf.drop_duplicates(subset=["id"], keep="first")
     return pl.from_pandas(result_pdf)
 
 
-def measure_method(method_func, df: pl.DataFrame, iterations: int = 5) -> dict:
+def measure_method(method_func, seen_df: pl.DataFrame, new_df: pl.DataFrame, iterations: int = 5) -> dict:
     """
-    Measure execution time of a deduplication method.
+    Measure execution time of a filtering method.
 
     Returns:
-        dict with timing stats
+        dict with timing stats and result size
     """
     times = []
 
     # Warmup
-    _ = method_func(df)
+    result = method_func(seen_df, new_df)
+    result_size = len(result)
 
     for _ in range(iterations):
         start = time.perf_counter()
-        result = method_func(df)
+        result = method_func(seen_df, new_df)
         end = time.perf_counter()
         times.append(end - start)
 
@@ -167,30 +132,37 @@ def measure_method(method_func, df: pl.DataFrame, iterations: int = 5) -> dict:
         "stdev": statistics.stdev(times) if len(times) > 1 else 0,
         "min": min(times),
         "max": max(times),
-        "all_times": times
+        "all_times": times,
+        "result_size": result_size
     }
 
 
-def run_benchmark_suite(size: int, duplication_rate: float, iterations: int = 5):
+def run_benchmark_suite(seen_size: int, new_size: int, overlap_rate: float, iterations: int = 5):
     """
-    Run all deduplication methods for a given data size and duplication rate.
+    Run all filtering methods for a given configuration.
+
+    Args:
+        seen_size: Number of items in existing "seen" set
+        new_size: Number of new incoming items
+        overlap_rate: Fraction of new items that already exist in seen set
     """
     print(f"\n{'='*70}")
-    print(f"Size: {size:,} rows | Duplication rate: {duplication_rate*100:.0f}%")
+    print(f"Seen: {seen_size:,} items | New: {new_size:,} items | Overlap: {overlap_rate*100:.0f}%")
     print(f"{'='*70}")
 
     # Generate data
-    df = generate_data(size, duplication_rate)
-    expected_unique = len(df.unique(subset=["id"]))
-    print(f"Generated {len(df):,} rows with {expected_unique:,} unique values")
+    seen_df, new_df = generate_data(seen_size, new_size, overlap_rate)
+
+    # Calculate expected result size
+    expected_new = int(new_size * (1 - overlap_rate))
+    print(f"Expected truly new items: ~{expected_new:,}")
 
     methods = [
         ("Polars anti-join", method_polars_anti_join),
-        ("Polars anti-join v2", method_polars_anti_join_v2),
-        ("Python set()", method_python_set),
-        ("Polars unique()", method_polars_unique),
-        ("Polars group_by().first()", method_polars_group_by),
-        ("Pandas drop_duplicates()", method_pandas_drop_duplicates),
+        ("Python set difference", method_python_set_difference),
+        ("Python set comprehension", method_python_set_comprehension),
+        ("Polars is_in() filter", method_polars_is_in),
+        ("Pandas merge indicator", method_pandas_merge),
     ]
 
     results = {}
@@ -198,28 +170,30 @@ def run_benchmark_suite(size: int, duplication_rate: float, iterations: int = 5)
     for name, method in methods:
         print(f"\nTesting {name}...", end=" ", flush=True)
         try:
-            stats = measure_method(method, df, iterations)
+            stats = measure_method(method, seen_df, new_df, iterations)
             results[name] = stats
-            print(f"{stats['mean']*1000:.2f}ms ± {stats['stdev']*1000:.2f}ms")
+            print(f"{stats['mean']*1000:.2f}ms ± {stats['stdev']*1000:.2f}ms (found {stats['result_size']:,} new items)")
         except Exception as e:
             print(f"ERROR: {e}")
             results[name] = None
 
-    # Calculate speedups relative to Python set()
-    if "Python set()" in results and results["Python set()"]:
-        baseline = results["Python set()"]["mean"]
+    # Calculate speedups relative to Python set comprehension (most common pattern)
+    baseline_name = "Python set comprehension"
+    if baseline_name in results and results[baseline_name]:
+        baseline = results[baseline_name]["mean"]
         print(f"\n{'='*70}")
-        print("Speedup vs Python set():")
+        print(f"Speedup vs {baseline_name}:")
         print(f"{'='*70}")
         for name, stats in results.items():
-            if stats and name != "Python set()":
+            if stats and name != baseline_name:
                 speedup = baseline / stats["mean"]
                 print(f"{name:30s}: {speedup:6.2f}x")
 
     return {
-        "size": size,
-        "duplication_rate": duplication_rate,
-        "unique_count": expected_unique,
+        "seen_size": seen_size,
+        "new_size": new_size,
+        "overlap_rate": overlap_rate,
+        "expected_new": expected_new,
         "iterations": iterations,
         "results": results
     }
@@ -229,37 +203,38 @@ def main():
     iterations = int(sys.argv[1]) if len(sys.argv) > 1 else 5
 
     print("="*70)
-    print("Polars Anti-Join Deduplication Benchmark")
+    print("Polars Anti-Join: Filter New Items vs Seen Items")
     print("="*70)
     print(f"Iterations per test: {iterations}")
+    print("\nUse case: Filter incoming items against existing 'seen' set")
 
-    # Test configurations
+    # Test configurations: (seen_size, new_size, overlap_rate)
     configs = [
-        # Small data
-        (1_000, 0.1),      # 1K rows, 10% duplicates
-        (1_000, 0.5),      # 1K rows, 50% duplicates
-        (1_000, 0.9),      # 1K rows, 90% duplicates
+        # Small: 1K seen, various new batch sizes
+        (1_000, 1_000, 0.5),      # Equal size, 50% overlap
+        (1_000, 1_000, 0.9),      # Equal size, 90% overlap
+        (1_000, 10_000, 0.5),     # Large new batch
 
-        # Medium data
-        (100_000, 0.1),    # 100K rows, 10% duplicates
-        (100_000, 0.5),    # 100K rows, 50% duplicates
-        (100_000, 0.9),    # 100K rows, 90% duplicates
+        # Medium: 100K seen
+        (100_000, 10_000, 0.5),   # Small new batch
+        (100_000, 100_000, 0.5),  # Equal size, 50% overlap
+        (100_000, 100_000, 0.9),  # Equal size, 90% overlap
 
-        # Large data
-        (1_000_000, 0.1),  # 1M rows, 10% duplicates
-        (1_000_000, 0.5),  # 1M rows, 50% duplicates
-        (1_000_000, 0.9),  # 1M rows, 90% duplicates
+        # Large: 1M seen
+        (1_000_000, 100_000, 0.5),   # Medium new batch
+        (1_000_000, 1_000_000, 0.5), # Equal size, 50% overlap
+        (1_000_000, 1_000_000, 0.9), # Equal size, 90% overlap
     ]
 
     all_results = []
 
-    for size, dup_rate in configs:
-        result = run_benchmark_suite(size, dup_rate, iterations)
+    for seen_size, new_size, overlap_rate in configs:
+        result = run_benchmark_suite(seen_size, new_size, overlap_rate, iterations)
         all_results.append(result)
 
     # Save results to JSONL
     results_path = Path(__file__).parent / "results.jsonl"
-    with open(results_path, "a") as f:
+    with open(results_path, "w") as f:  # Overwrite old results
         f.write(json.dumps({
             "timestamp": time.time(),
             "benchmarks": all_results

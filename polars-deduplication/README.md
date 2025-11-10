@@ -1,110 +1,149 @@
-# Polars Anti-Join vs Alternatives for Deduplication
+# Polars Anti-Join for Filtering New Items Against Seen Items
 
-Benchmark comparing different approaches to single-column deduplication, with a focus on Polars anti-join performance versus Python's built-in `set()`.
+Benchmark comparing different approaches to filter incoming items against an existing "seen" set.
+
+**Use Case:** You have a set of items you've already processed (the "seen" set), and new items come in. You want to identify which new items you haven't seen before.
 
 ## Methods Tested
 
-1. **Polars anti-join** - Using join operations to filter duplicates
-2. **Polars anti-join v2** - Alternative anti-join implementation with explicit row indexing
-3. **Python set()** - Classic Python approach with order preservation
-4. **Polars unique()** - Built-in Polars deduplication method
-5. **Polars group_by().first()** - Aggregation-based approach
+1. **Polars anti-join** - `new_df.join(seen_df, on="id", how="anti")` (designed for this!)
+2. **Python set difference** - `new_set - seen_set`
+3. **Python set comprehension** - `[x for x in new if x not in seen]` (order-preserving)
+4. **Polars is_in() filter** - `new_df.filter(~pl.col("id").is_in(seen_ids))`
 
 ## Key Findings
 
-### Small Data (1,000 rows)
+### Small Data (< 10K items)
 
-For small datasets, **Python set() is fastest**:
+For small datasets, **Python set comprehension is fastest**:
 
-| Method | Mean Time | Speedup vs set() |
-|--------|-----------|------------------|
-| Python set() | 0.13ms | 1.00x (baseline) |
-| Polars unique() | 0.16ms | 0.81x (slower) |
-| Polars group_by() | 1.84ms | 0.07x |
-| Polars anti-join | 4.93ms | 0.03x |
+| Seen | New | Overlap | Python set | Polars anti-join | Speedup |
+|------|-----|---------|------------|------------------|---------|
+| 1K | 1K | 50% | 0.12ms | 0.75ms | 0.16x (slower) |
+| 1K | 10K | 50% | 0.69ms | 0.95ms | 0.73x (slower) |
 
-**Why?** For small data, the overhead of Polars operations outweighs the benefits. Python's native set() is highly optimized for small collections.
+**Why?** For small data, Python's native set operations have less overhead.
 
-### Medium Data (100,000 rows)
+### Medium Data (100K seen items)
 
-The crossover point where **Polars starts winning**:
+**Polars starts dominating:**
 
-| Duplication Rate | Python set() | Polars unique() | Polars group_by() | Best Speedup |
-|------------------|--------------|-----------------|-------------------|--------------|
-| 10% duplicates | 13.23ms | 2.41ms | 2.10ms | **6.31x** |
-| 50% duplicates | 11.02ms | 2.20ms | 1.83ms | **6.01x** |
-| 90% duplicates | 7.74ms | 0.86ms | 0.93ms | **8.95x** |
+| Seen | New | Overlap | Python set | Polars anti-join | Speedup |
+|------|-----|---------|------------|------------------|---------|
+| 100K | 10K | 50% | 5.11ms | 1.24ms | **4.13x** |
+| 100K | 100K | 50% | 16.40ms | 1.85ms | **8.87x** |
+| 100K | 100K | 90% | 14.10ms | 1.67ms | **8.43x** |
 
-**Pattern:** Higher duplication rates favor Polars even more, as it handles fewer unique values more efficiently.
+The crossover point is around 100K seen items - after this, Polars is consistently faster.
 
-### Large Data (1,000,000 rows)
+### Large Data (1M seen items)
 
-Polars dominates for large datasets:
+**Polars anti-join destroys Python set:**
 
-| Duplication Rate | Python set() | Polars unique() | Polars group_by() | Best Speedup |
-|------------------|--------------|-----------------|-------------------|--------------|
-| 10% duplicates | 217.16ms | 20.29ms | 12.43ms | **17.48x** |
-| 50% duplicates | 166.65ms | 14.06ms | 11.86ms | **14.05x** |
-| 90% duplicates | 100.45ms | 6.80ms | 5.28ms | **19.01x** |
+| Seen | New | Overlap | Python set | Polars anti-join | Speedup |
+|------|-----|---------|------------|------------------|---------|
+| 1M | 100K | 50% | 128.31ms | 5.95ms | **21.57x** |
+| 1M | 1M | 50% | 268.09ms | 12.17ms | **22.02x** |
+| 1M | 1M | 90% | 326.60ms | 10.34ms | **31.58x** |
 
-**Winner:** `group_by().first()` consistently delivers the best performance at scale.
+At 1M seen items with high overlap, **anti-join is 32x faster** than Python!
 
-## Anti-Join Performance
+## Why Anti-Join Wins
 
-While anti-join works for deduplication, it's **not the fastest approach**:
+1. **Optimized hash joins** - Polars uses efficient hash-based joins under the hood
+2. **No Python overhead** - Operations stay in Rust, avoiding Python list conversions
+3. **Memory efficient** - Doesn't need to materialize intermediate Python lists
+4. **Scales beautifully** - Performance gap increases with data size
 
-- At 1M rows, anti-join is 5-7x faster than Python set()
-- However, it's 2-3x slower than `unique()` or `group_by().first()`
-- Anti-join overhead comes from explicit row indexing and multiple operations
+## Pattern Analysis
+
+**Key insight:** The size of the "seen" set matters most!
+
+- Small seen set (< 10K): Python set is fine
+- Medium seen set (100K): Anti-join is 4-8x faster
+- Large seen set (1M+): Anti-join is 20-30x faster
+
+**Overlap rate** has minimal impact - anti-join is fast regardless.
 
 ## Recommendations
 
-### Use Python set() when:
-- Dataset < 10,000 rows
-- Working with simple Python lists/iterables
-- Don't need Polars DataFrame output
+### Use Python set when:
+- Seen set < 10K items
+- Working with simple Python lists
+- One-off script with no Polars dependency
 
-### Use Polars when:
-- Dataset > 10,000 rows
-- Data is already in a DataFrame
-- Need to maintain DataFrame structure
+### Use Polars anti-join when:
+- Seen set > 10K items (use it!)
+- Seen set > 100K items (definitely use it!)
+- Data already in DataFrames
 - Performance matters
+- Processing batches repeatedly
 
-### Best Polars method:
-1. **`group_by().first()`** - Fastest overall (up to 19x vs Python set())
-2. **`unique()`** - Close second, slightly simpler syntax
-3. **Anti-join** - Works but slower; better suited for comparing two different DataFrames
+### Second best: Polars is_in()
+- 3-4x slower than anti-join
+- But still 6-10x faster than Python set for large data
+- Simpler syntax if you prefer filtering
 
 ## Code Examples
 
-### Fastest: Polars group_by().first()
+### Best: Polars Anti-Join (22-32x faster)
 ```python
 import polars as pl
 
-df = pl.DataFrame({"id": [1, 2, 2, 3, 3, 3]})
-result = df.group_by("id").first()
-# Result: 3 unique rows
+# Your existing seen items
+seen_df = pl.DataFrame({"id": [1, 2, 3, 4, 5]})
+
+# New batch of items comes in
+new_df = pl.DataFrame({"id": [3, 4, 5, 6, 7, 8]})
+
+# Find items you haven't seen before
+unseen = new_df.join(seen_df, on="id", how="anti")
+# Result: [6, 7, 8]
 ```
 
-### Alternative: Polars unique()
+### Alternative: Polars is_in() (6-10x faster)
 ```python
-result = df.unique(subset=["id"], keep="first")
+seen_ids = seen_df["id"]
+unseen = new_df.filter(~pl.col("id").is_in(seen_ids))
 ```
 
-### Python set() (for small data)
+### Python set (baseline - works for small data)
 ```python
-seen = set()
-ids = df["id"].to_list()
-result = [x for x in ids if x not in seen and not seen.add(x)]
+seen_set = set(seen_df["id"].to_list())
+new_ids = new_df["id"].to_list()
+unseen = [x for x in new_ids if x not in seen_set]
+```
+
+## Practical Example
+
+Imagine processing a stream of user events:
+
+```python
+import polars as pl
+
+# Initialize seen events (load from database/cache)
+seen_events = pl.DataFrame({"event_id": [...]})  # 1M events
+
+# New batch arrives
+new_batch = pl.DataFrame({"event_id": [...]})  # 100K events
+
+# Filter to only unseen events (5.95ms with anti-join vs 128ms with Python)
+unseen_events = new_batch.join(seen_events, on="event_id", how="anti")
+
+# Process only the unseen events
+process(unseen_events)
+
+# Update seen set for next batch
+seen_events = pl.concat([seen_events, unseen_events])
 ```
 
 ## Benchmark Details
 
-- **Test data:** Randomly generated integers with controlled duplication rates
+- **Test configurations:** Various combinations of seen/new sizes and overlap rates
 - **Iterations:** 3 runs per configuration with warmup
-- **Sizes tested:** 1K, 100K, 1M rows
-- **Duplication rates:** 10%, 50%, 90%
-- **Hardware:** Single-threaded performance
+- **Seen sizes:** 1K, 100K, 1M items
+- **New batch sizes:** 1K to 1M items
+- **Overlap rates:** 50%, 90% (how many new items are duplicates)
 
 ## Running the Benchmark
 
@@ -123,9 +162,11 @@ Results are saved to `results.jsonl` for further analysis.
 
 ## Conclusion
 
-**TL;DR:** For deduplication on single columns:
-- Small data (< 10K): Use Python `set()`
-- Large data (> 10K): Use Polars `group_by().first()` or `unique()`
-- Anti-join is viable but not optimal for deduplication - it's better suited for comparing two different DataFrames
+**TL;DR:** For filtering new items against a seen set:
+- **Small seen set (< 10K):** Python set comprehension is fine
+- **Medium seen set (100K):** Use Polars anti-join (8x faster)
+- **Large seen set (1M+):** Use Polars anti-join (20-30x faster!)
 
-The performance gap widens dramatically with data size. At 1M rows with high duplication, Polars can be **19x faster** than Python's set().
+This is exactly what anti-join was designed for. Unlike self-deduplication (where `unique()` or `group_by()` are better), comparing two different datasets is where anti-join truly shines.
+
+The performance gap is dramatic: at scale, **Polars anti-join can be 30x faster** than Python's set operations.
